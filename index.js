@@ -17,7 +17,7 @@ const app = express();
 // ============================================
 // 1. Validate Environment Variables at Startup
 // ============================================
-const requiredEnvVars = ["RZP_KEY_ID", "RZP_KEY_SECRET", "RZP_WEBHOOK_SECRET"];
+const requiredEnvVars = ["RZP_KEY_ID", "RZP_KEY_SECRET"];
 const missingVars = requiredEnvVars.filter((v) => !process.env[v]);
 if (missingVars.length > 0) {
   console.error(`Missing required env vars: ${missingVars.join(", ")}`);
@@ -83,25 +83,21 @@ app.post("/create-order", async (req, res) => {
 
     // Validate amount has max 2 decimal places
     if (Math.round(amount * 100) !== amount * 100) {
-      return res.status(400).json({
-        error: "Amount can have maximum 2 decimal places",
+      return res.status(400).json({ 
+        error: "Amount can have maximum 2 decimal places" 
       });
     }
 
     // Validate currency
     const validCurrencies = ["INR", "USD", "EUR", "GBP"];
     if (!validCurrencies.includes(currency)) {
-      return res.status(400).json({
-        error: `Invalid currency. Must be one of: ${validCurrencies.join(
-          ", "
-        )}`,
+      return res.status(400).json({ 
+        error: `Invalid currency. Must be one of: ${validCurrencies.join(", ")}` 
       });
     }
 
     // Create a local order id (your system)
-    const ourOrderId = `order_${Date.now()}_${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
+    const ourOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Create Razorpay order (amount in paise)
     const options = {
@@ -133,9 +129,9 @@ app.post("/create-order", async (req, res) => {
     });
   } catch (err) {
     console.error("Create order error:", err);
-    return res.status(500).json({
+    return res.status(500).json({ 
       error: "Failed to create order",
-      message: err.message,
+      message: err.message 
     });
   }
 });
@@ -146,13 +142,13 @@ app.post("/create-order", async (req, res) => {
 app.get("/order-status/:ourOrderId", (req, res) => {
   try {
     const ourId = req.params.ourOrderId;
-
+    
     if (!ourId) {
       return res.status(400).json({ error: "Order ID required" });
     }
 
     const order = get(ourId);
-
+    
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
     }
@@ -175,8 +171,11 @@ app.get("/order-status/:ourOrderId", (req, res) => {
 // ============================================
 app.post("/verify-payment", async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-      req.body;
+    const { 
+      razorpay_order_id, 
+      razorpay_payment_id, 
+      razorpay_signature 
+    } = req.body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -192,17 +191,17 @@ app.post("/verify-payment", async (req, res) => {
     if (expectedSignature === razorpay_signature) {
       // Update order status
       const local = getByRazorpayOrderId(razorpay_order_id);
-
+      
       if (local) {
         if (local.status !== "paid") {
           setOrderStatus(local.ourId, "paid");
           console.log(`Payment verified: ${local.ourId}`);
         }
-
-        return res.json({
-          success: true,
+        
+        return res.json({ 
+          success: true, 
           message: "Payment verified successfully",
-          ourOrderId: local.ourId,
+          ourOrderId: local.ourId 
         });
       } else {
         return res.status(404).json({ error: "Order not found" });
@@ -218,186 +217,32 @@ app.post("/verify-payment", async (req, res) => {
 });
 
 // ============================================
-// 10. Razorpay Webhook Endpoint
+// 10. Note: Webhooks removed (no domain yet)
 // ============================================
-app.post("/razorpay-webhook", (req, res) => {
-  try {
-    const secret = process.env.RZP_WEBHOOK_SECRET;
-
-    // Validate webhook secret is configured
-    if (!secret) {
-      console.error("RZP_WEBHOOK_SECRET not configured");
-      return res.status(500).send("Server misconfiguration");
-    }
-
-    const signature = req.headers["x-razorpay-signature"];
-
-    if (!signature) {
-      console.warn("Webhook signature missing");
-      return res.status(400).send("Missing signature");
-    }
-
-    // Verify signature using HMAC SHA256 of raw body
-    const expectedSignature = crypto
-      .createHmac("sha256", secret)
-      .update(req.rawBody)
-      .digest("hex");
-
-    if (expectedSignature !== signature) {
-      console.warn("Invalid webhook signature");
-      return res.status(400).send("Invalid signature");
-    }
-
-    const event = req.body.event;
-    const payload = req.body.payload;
-
-    console.log(`Webhook received: ${event}`);
-
-    // Handle different webhook events
-    switch (event) {
-      case "payment.captured":
-      case "payment.authorized":
-      case "order.paid":
-        handleSuccessfulPayment(payload);
-        break;
-
-      case "payment.failed":
-        handleFailedPayment(payload);
-        break;
-
-      case "payment.pending":
-        handlePendingPayment(payload);
-        break;
-
-      case "refund.created":
-        handleRefund(payload);
-        break;
-
-      default:
-        console.log(`Unhandled webhook event: ${event}`);
-    }
-
-    // Acknowledge webhook quickly
-    return res.json({ status: "ok" });
-  } catch (err) {
-    console.error("Webhook processing error:", err);
-    // Still acknowledge to prevent retries
-    return res.status(200).json({ status: "error", message: err.message });
-  }
-});
+// TODO: Add webhook endpoint when you have a production domain
+// Webhook URL will be: https://yourdomain.com/razorpay-webhook
+// For now, we rely on client-side verification via /verify-payment
 
 // ============================================
-// 11. Webhook Handler Functions
-// ============================================
-function handleSuccessfulPayment(payload) {
-  try {
-    const paymentEntity = payload.payment?.entity;
-    const orderEntity = payload.order?.entity;
-
-    let rzpOrderId = paymentEntity?.order_id || orderEntity?.id;
-
-    if (!rzpOrderId) {
-      console.warn("No order ID found in webhook payload");
-      return;
-    }
-
-    const local = getByRazorpayOrderId(rzpOrderId);
-
-    if (!local) {
-      console.warn(`Webhook order ID not found in local DB: ${rzpOrderId}`);
-      return;
-    }
-
-    // Idempotency check
-    if (local.status === "paid") {
-      console.log(`Duplicate webhook for already paid order: ${local.ourId}`);
-      return;
-    }
-
-    // Update order status
-    setOrderStatus(local.ourId, "paid");
-    console.log(`✅ Order marked as PAID: ${local.ourId}`);
-
-    // TODO: Add your business logic here:
-    // - Complete booking
-    // - Send confirmation email
-    // - Update inventory
-    // - Trigger fulfillment
-  } catch (err) {
-    console.error("Error handling successful payment:", err);
-  }
-}
-
-function handleFailedPayment(payload) {
-  try {
-    const paymentEntity = payload.payment?.entity;
-    const rzpOrderId = paymentEntity?.order_id;
-
-    if (rzpOrderId) {
-      const local = getByRazorpayOrderId(rzpOrderId);
-      if (local && local.status !== "failed") {
-        setOrderStatus(local.ourId, "failed");
-        console.log(`❌ Order marked as FAILED: ${local.ourId}`);
-
-        // TODO: Send failure notification to customer
-      }
-    }
-  } catch (err) {
-    console.error("Error handling failed payment:", err);
-  }
-}
-
-function handlePendingPayment(payload) {
-  try {
-    const paymentEntity = payload.payment?.entity;
-    const rzpOrderId = paymentEntity?.order_id;
-
-    if (rzpOrderId) {
-      const local = getByRazorpayOrderId(rzpOrderId);
-      if (local && local.status !== "pending") {
-        setOrderStatus(local.ourId, "pending");
-        console.log(`⏳ Order marked as PENDING: ${local.ourId}`);
-      }
-    }
-  } catch (err) {
-    console.error("Error handling pending payment:", err);
-  }
-}
-
-function handleRefund(payload) {
-  try {
-    const refundEntity = payload.refund?.entity;
-    const paymentId = refundEntity?.payment_id;
-
-    console.log(`💰 Refund created for payment: ${paymentId}`);
-
-    // TODO: Update order status to refunded
-    // TODO: Notify customer about refund
-  } catch (err) {
-    console.error("Error handling refund:", err);
-  }
-}
-
-// ============================================
-// 12. Global Error Handler
+// 11. Global Error Handler
 // ============================================
 app.use((err, req, res, next) => {
   console.error("Global error handler:", err);
-  res.status(500).json({
+  res.status(500).json({ 
     error: "Internal server error",
-    message: process.env.NODE_ENV === "development" ? err.message : undefined,
+    message: process.env.NODE_ENV === "development" ? err.message : undefined
   });
 });
 
 // ============================================
-// 13. 404 Handler
+// 12. 404 Handler
 // ============================================
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
 // ============================================
-// 14. Start Server
+// 13. Start Server
 // ============================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

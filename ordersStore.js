@@ -27,7 +27,9 @@ function getByRazorpayOrderId(rzpOrderId) {
 }
 
 function get(ourOrderId) {
-  return orders.get(ourOrderId);
+  const val = orders.get(ourOrderId);
+  if (!val) return null;
+  return { ourId: ourOrderId, ...val };
 }
 
 module.exports = {

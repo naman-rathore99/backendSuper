@@ -77,16 +77,21 @@ app.post("/create-order", async (req, res) => {
     const { amount, currency = "INR", metadata } = req.body;
 
     // Enhanced validation
-    if (!amount || typeof amount !== "number" || amount <= 0) {
-      return res.status(400).json({ error: "Invalid amount" });
-    }
+// Validate amount
+if (!amount || typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+  return res.status(400).json({ error: "Invalid amount" });
+}
 
-    // Validate amount has max 2 decimal places
-    if (Math.round(amount * 100) !== amount * 100) {
-      return res.status(400).json({ 
-        error: "Amount can have maximum 2 decimal places" 
-      });
-    }
+// Convert to paise safely
+const paise = Math.round(amount * 100);
+
+// Ensure amount didn't have more than 2 decimal places (tolerant to float precision)
+if (Math.abs(paise / 100 - amount) > 0.001) {
+  return res.status(400).json({
+    error: "Amount can have maximum 2 decimal places",
+  });
+}
+
 
     // Validate currency
     const validCurrencies = ["INR", "USD", "EUR", "GBP"];
@@ -101,7 +106,7 @@ app.post("/create-order", async (req, res) => {
 
     // Create Razorpay order (amount in paise)
     const options = {
-      amount: Math.floor(amount * 100), // Use floor to avoid overcharging
+      amount: paise, // Use floor to avoid overcharging
       currency,
       receipt: `rcpt_${ourOrderId}`,
       payment_capture: 1, // Auto capture. Use 0 for manual capture
